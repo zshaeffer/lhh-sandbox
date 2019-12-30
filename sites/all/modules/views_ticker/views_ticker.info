@@ -1,0 +1,19 @@
+; $Id$
+
+name = Views Ticker
+description = Create custom news ticker.
+package = Views
+dependencies[] = views
+core = 7.x
+
+files[] = views_ticker.module
+files[] = includes/views_ticker.views.inc
+files[] = includes/views_ticker_style_plugin.inc
+
+
+; Information added by drupal.org packaging script on 2011-06-04
+version = "7.x-1.12"
+core = "7.x"
+project = "views_ticker"
+datestamp = "1307190726"
+

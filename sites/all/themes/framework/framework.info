@@ -1,0 +1,28 @@
+name = Framework
+description = Framework is a blank canvas for theme developers. Use Framework as a starting point to facilitate your theme development.
+core = 7.x
+engine = phptemplate
+stylesheets[all][] = style.css
+
+regions[sidebar_first]  = First Sidebar
+regions[sidebar_second] = Second Sidebar
+regions[masthead]       = Masthead
+regions[header]         = Header
+regions[highlighted]    = Highlighted
+regions[content]        = Content
+regions[frontpage_carousel]		= Frontpage Carousel
+regions[frontpage_healthHeroes]	= Frontpage Health Heroes
+regions[frontpage_tabs]			= Frontpage Tabs
+regions[navigation]     = Navigation
+regions[help]           = Help
+regions[footer]         = Footer
+regions[page_top]       = Page top
+regions[page_bottom]    = Page bottom
+
+
+; Information added by drupal.org packaging script on 2011-11-02
+version = "7.x-3.6"
+core = "7.x"
+project = "framework"
+datestamp = "1320214533"
+

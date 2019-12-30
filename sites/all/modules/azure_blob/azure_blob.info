@@ -1,0 +1,13 @@
+name = Windows Azure Blob
+description = Handles storage of files on Windows Azure Blob Storage.
+core = 7.x
+files[] = azure_blob.streamwrappers.inc
+dependencies[] = ctools (>=1.0)
+configure = admin/config/media/azure-blob
+package = Windows Azure
+; Information added by drupal.org packaging script on 2013-09-30
+version = "7.x-1.x-dev"
+core = "7.x"
+project = "azure_blob"
+datestamp = "1380555070"
+

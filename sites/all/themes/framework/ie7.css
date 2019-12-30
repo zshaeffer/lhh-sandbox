@@ -1,0 +1,11 @@
+@charset "UTF-8";
+/* CSS Document */
+
+.megamenu-menu .megamenu-parent-0{margin-left:3px;}
+.megamenu-menu .megamenu-parent {margin: 0 4px 0 0;}
+
+.megamenu-skin-minimal .megamenu-bin {background:transparent url(images/opaque.png);font-size:0.8333;color:#000000;margin-top:27px;padding:10px 10px;float: left;width:190px;}
+.megamenu-skin-minimal .megamenu-slot {list-style: none;margin:0 10px 0 0; padding:0;width:190px;float: left;}
+.megamenu-skin-minimal .megamenu-slot-title {width:100%;padding:0 0 8px;margin:0;}
+.megamenu-skin-minimal .megamenu-slot-title a {font-size:12px; line-height:14px;display:block;color:#000;}
+body.sidebar-second #main {margin:0;width:579px;}

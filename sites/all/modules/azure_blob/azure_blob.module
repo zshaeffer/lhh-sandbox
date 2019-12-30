@@ -1,0 +1,249 @@
+<?php
+
+/**
+ * @file
+ * Allows storing of files and media on Windows Azure Blob Storage in the cloud.
+ * 
+ * This is a mod of azure_storage since as of writing, the module does not seem
+ * to be actively maintained.
+ * 
+ * @author Damien Tournoud (Windows Azure Integration Developer), atuyo60
+ */
+
+/**
+ * Implements hook_help().
+ * 
+ * Displays help and module information.
+ * 
+ * @param string $path
+ *   Which path of the site we're using to display help
+ * @param array $arg
+ *   Array that holds the current path as returned from arg() function
+ * 
+ * @return array
+ */
+function azure_blob_help($path, $arg) {
+  switch ($path) {
+    // Main module help
+    case 'admin/help#azure_blob':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('The Windows Azure blob module allows for static files to be uploaded to the Windows Azure cloud storage service.') . '</p>';
+      $output .= '<h3>' . t('Instructions') . '</h3>';
+      $output .= '<dl>';
+      $output .= '<dt>' . t('Adding a custom blob stream') . '</dt>';
+      $output .= '<dd>' . t('Configuration > Media > Windows Azure Blob > Add') . '</dd>';
+      $output .= '<dt>' . t('Setting the default download method') . '</dt>';
+      $output .= '<dd>' . t('Configuration > Media > File system') . '</dd>';
+      $output .= '<dt>' . t('Setting the upload destination of content type fields') . '</dt>';
+      $output .= '<dd>' . t('Structure > Content types > manage fields') . '</dd>';
+      $output .= '</dl>';
+      return $output;
+  }
+}
+
+/**
+ * Implements hook_ctools_plugin_directory().
+ * 
+ * Used to inform the CTools plugin system about the location of a 
+ * directory that should be searched for files containing the plugin.
+ * 
+ * @param string $module
+ *   The system name of the module owning the plugin type for 
+ *   which a base directory location is being requested.
+ * 
+ * @param string $plugin
+ *   The name of the plugin for which a base directory is being requested.
+ * 
+ * @return string
+ *   Path where CTools plugin system should search for plugin files, 
+ *   relative to module's root. No leading and trailing slashes.
+ */
+function azure_blob_ctools_plugin_directory($module, $plugin) {
+  if ($module === 'ctools' && $plugin === 'export_ui') {
+    return 'plugins/' . $plugin;
+  }
+}
+
+/**
+ * Implements hook_stream_wrappers().
+ * 
+ * Registers a new Drupal stream wrapper for Windows Azure.
+ * 
+ * @return array
+ *   A nested array, keyed first by scheme name ("public" for "public://"),
+ *   then keyed by name, class, description and type.
+ */
+function azure_blob_stream_wrappers() {
+  $wrappers = array();
+
+  ctools_include('export');
+  foreach (ctools_export_crud_load_all('azure_blob') as $name => $storage) {
+    if (!empty($storage->disabled)) {
+      continue;
+    }
+
+    $wrappers[$name] = array(
+      'name' => t('Windows Azure Blob (@key)', array('@key' => $name)),
+      'class' => 'WindowsAzureBlobStreamWrapper',
+      'description' => t('Files stored on Windows Azure Blob Storage (@key).', array('@key' => $name)),
+    );
+  }
+
+  return $wrappers;
+}
+
+/**
+ * Implements hook_menu().
+ * 
+ * @return array
+ *   An array of menu items.
+ */
+function azure_blob_menu() {
+  $items = array();
+  
+  $items['azure/generate/%image_style'] = array(
+    'title' => 'Generate image style',
+    'page callback' => 'azure_blob_image_style_deliver',
+    'page arguments' => array(2),
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  
+  $items['azure/remote'] = array(
+    'title' => 'Remote file download',
+    'page callback' => 'azure_blob_remote_files_deliver',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  
+  return $items;
+}
+
+/**
+ * Mod of image_style_deliver from the Image module.
+ * 
+ * @param string $style
+ *   The image style
+ * 
+ * @param string $scheme
+ *   The stream name
+ */
+function azure_blob_image_style_deliver($style, $scheme) {
+  // Check that the style is defined and the scheme is valid
+  if (module_exists('image') === FALSE || 
+    empty($style) || file_stream_wrapper_valid_scheme($scheme) === FALSE) {
+    return MENU_NOT_FOUND;
+  }
+
+  // Get the additional function arguments
+  $args = func_get_args();
+  array_shift($args);
+  array_shift($args);
+  $target = implode('/', $args);
+  
+  // Constant only exists from Drupal version 7.20
+  if (defined('IMAGE_DERIVATIVE_TOKEN')) {
+    // Check that the image derivative token is valid. (Sites which require 
+    // generation without a token can set the 'image_allow_insecure_derivatives'
+    // variable to TRUE to bypass the latter check, but this will increase the
+    // site's vulnerability to denial-of-service attacks. To prevent this
+    // variable from leaving the site vulnerable to the most serious attacks, a
+    // token is always required when a derivative of a derivative is requested)
+    if (!variable_get('image_allow_insecure_derivatives', FALSE) || strpos(ltrim($target, '\/'), 'styles/') === 0) {
+      $valid = isset($_GET[IMAGE_DERIVATIVE_TOKEN]) && 
+        $_GET[IMAGE_DERIVATIVE_TOKEN] === image_style_path_token($style['name'], $scheme . '://' . $target);
+
+      if (!$valid) {
+        return MENU_ACCESS_DENIED;
+      }
+    }
+  }
+
+  $image_uri = $scheme . '://' . $target;
+  $derivative_uri = image_style_path($style['name'], $image_uri);
+
+  // Don't start generating the image if the derivative already exists or if
+  // generation is in progress in another thread
+  $lock_name = 'image_style_deliver:' . $style['name'] . ':' . drupal_hash_base64($image_uri);
+  $success = FALSE;
+  
+  if (!is_file($derivative_uri)) {
+    $lock_acquired = lock_acquire($lock_name);
+    
+    if ($lock_acquired) {
+      // Create a file with a unique name in the temporary directory
+      $unique_filename = drupal_tempnam(file_directory_temp(), 'azu');
+      
+      // Check that the file with a unique name was created successfully
+      if ($unique_filename !== FALSE) {
+        // The temporary file is no longer needed
+        file_unmanaged_delete($unique_filename);
+        // Use the unique name appended with the image extension
+        $local_file = $unique_filename . '.' . pathinfo($image_uri)['extension'];
+        // Copy the image locally (most of the image toolkits do not support remote files)
+        file_unmanaged_copy($image_uri, $local_file, FILE_EXISTS_REPLACE);
+        // Create the image derivative
+        $success = image_style_create_derivative($style, $local_file, $derivative_uri);
+        // Delete the temporary local file since it was not a managed creation
+        file_unmanaged_delete($local_file);
+      }
+      
+      lock_release($lock_name);
+    }
+    else {
+      // Sleep the client for 20s
+      $timeout = 20;
+      $start = time();
+      do {
+        sleep(1);
+        $success = is_file($derivative_uri);
+      }
+      while (!$success && (time() - $start < $timeout));
+    }
+  }
+  else {
+    $success = TRUE;
+  }
+
+  if ($success) {
+    // Add caching headers so that reverse proxies can store this page
+    drupal_page_is_cacheable(TRUE);
+    $wrapper = file_stream_wrapper_get_instance_by_uri($derivative_uri);
+    
+    // Transfer image to client
+    if ($wrapper === FALSE || !$wrapper->downloadContent()) {
+      return MENU_NOT_FOUND;
+    }
+  }
+  else {
+    watchdog('azure_image', 'Unable to generate the derived image located at %path.', array('%path' => $derivative_uri));
+    drupal_add_http_header('Status', '500 Internal Server Error');
+    print t('Error generating image.');
+    
+    drupal_exit();
+  }
+}
+
+/**
+ * Callback for download of remote files
+ * 
+ * @param string $scheme
+ *   The stream name
+ */
+function azure_blob_remote_files_deliver($scheme) {
+  if (file_stream_wrapper_valid_scheme($scheme) === FALSE) {
+    return MENU_NOT_FOUND;
+  }
+  
+  // Get the additional function arguments
+  $args = func_get_args();
+  array_shift($args);
+  $target = implode('/', $args);
+  
+  $wrapper = file_stream_wrapper_get_instance_by_uri($scheme . '://' . $target);
+  
+  if ($wrapper === FALSE || !$wrapper->downloadContent()) {
+    return MENU_NOT_FOUND;
+  }
+}
